@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { loadSampleUrk, referenceSampleBlocks } from './sample-urk'
-import { exportSlides, parseBlocks, splitLyrics } from './split'
+import {
+  composeSlides,
+  englishFieldsFromPaste,
+  exportSlides,
+  parseBlocks,
+  placeEnglishFields,
+  splitLyrics,
+} from './split'
 
 describe('parseBlocks', () => {
   it('trims lines, collapses blank separators, and drops empty edges', () => {
@@ -112,5 +119,120 @@ describe('splitLyrics', () => {
     const model = splitLyrics('only', 'solo')
     expect(model.canDownload).toBe(true)
     expect(exportSlides(model)).toEqual([{ urk: ['only'], eng: ['solo'] }])
+  })
+})
+
+describe('composeSlides', () => {
+  it('omits English when every field is blank or whitespace', () => {
+    const model = composeSlides('a\n\nb', ['', '  \n\t'])
+    expect(model.canDownload).toBe(true)
+    expect(model.rows.every((row) => row.eng === null)).toBe(true)
+    expect(exportSlides(model)).toEqual([
+      { urk: ['a'], eng: null },
+      { urk: ['b'], eng: null },
+    ])
+  })
+
+  it('pairs each Ukrainian block with the English field at that index', () => {
+    const model = composeSlides('urk1\nurk2\n\nurk3', ['eng1', ' eng2 \n eng3 '])
+    expect(model.canDownload).toBe(true)
+    expect(exportSlides(model)).toEqual([
+      { urk: ['urk1', 'urk2'], eng: ['eng1'] },
+      { urk: ['urk3'], eng: ['eng2', 'eng3'] },
+    ])
+  })
+
+  it('does not turn a blank line inside an English field into another slide', () => {
+    const model = composeSlides('a', ['hello\n\nworld'])
+    expect(model.rows).toHaveLength(1)
+    expect(model.canDownload).toBe(true)
+    expect(model.rows[0]?.eng?.lines).toEqual(['hello', 'world'])
+  })
+
+  it('marks an empty field as missing once any slide has English', () => {
+    const model = composeSlides('a\n\nb', ['hello', ''])
+    expect(model.canDownload).toBe(false)
+    expect(model.rows[0]?.eng).toEqual({
+      lines: ['hello'],
+      tooManyLines: false,
+      extra: false,
+      missing: false,
+    })
+    expect(model.rows[1]?.eng).toEqual({
+      lines: [],
+      tooManyLines: false,
+      extra: false,
+      missing: true,
+    })
+    expect(exportSlides(model)).toBeNull()
+  })
+
+  it('marks an English field with 3 or more lines and does not split it', () => {
+    const model = composeSlides('a\n\nb', ['one\ntwo\nthree', 'four'])
+    expect(model.canDownload).toBe(false)
+    expect(model.rows[0]?.eng).toMatchObject({
+      lines: ['one', 'two', 'three'],
+      tooManyLines: true,
+      missing: false,
+    })
+    expect(exportSlides(model)).toBeNull()
+  })
+
+  it('keeps a Ukrainian block with 3 or more lines as one slide', () => {
+    const model = composeSlides('a\nb\nc', ['x'])
+    expect(model.canDownload).toBe(false)
+    expect(model.rows).toHaveLength(1)
+    expect(model.rows[0]?.urk).toEqual({
+      lines: ['a', 'b', 'c'],
+      tooManyLines: true,
+      extra: false,
+    })
+    expect(model.rows[0]?.eng?.lines).toEqual(['x'])
+  })
+
+  it('ignores English fields past the Ukrainian block count', () => {
+    const model = composeSlides('a', ['one', 'two'])
+    expect(model.rows).toHaveLength(1)
+    expect(model.canDownload).toBe(true)
+    expect(exportSlides(model)).toEqual([{ urk: ['a'], eng: ['one'] }])
+  })
+
+  it('returns nothing when Ukrainian is empty', () => {
+    expect(composeSlides(' \n ', ['hello'])).toEqual({ rows: [], canDownload: false })
+  })
+})
+
+describe('englishFieldsFromPaste', () => {
+  it('joins each blank-line block into one field', () => {
+    expect(englishFieldsFromPaste('eng1\n\neng2\neng3')).toEqual(['eng1', 'eng2\neng3'])
+  })
+
+  it('returns nothing for a whitespace-only paste', () => {
+    expect(englishFieldsFromPaste('')).toEqual([])
+    expect(englishFieldsFromPaste(' \n\n ')).toEqual([])
+  })
+})
+
+describe('placeEnglishFields', () => {
+  it('fills as many slides as it can and keeps the rest', () => {
+    expect(placeEnglishFields(2, 'a\n\nb\n\nc')).toEqual({
+      fields: ['a', 'b'],
+      extra: ['c'],
+    })
+  })
+
+  it('returns a short paste without inventing slides', () => {
+    expect(placeEnglishFields(3, 'a\nb\n\nc')).toEqual({
+      fields: ['a\nb', 'c'],
+      extra: [],
+    })
+  })
+
+  it('treats every block as extra when there are no slides yet', () => {
+    expect(placeEnglishFields(0, 'a\n\nb')).toEqual({ fields: [], extra: ['a', 'b'] })
+  })
+
+  it('returns nothing for a whitespace-only paste', () => {
+    expect(placeEnglishFields(2, ' \n ')).toEqual({ fields: [], extra: [] })
   })
 })
