@@ -1,6 +1,7 @@
 node_modules
 dist
 .pnpm-store
+.wrangler
 .vite
 coverage
 *.tsbuildinfo

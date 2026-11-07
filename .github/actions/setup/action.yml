@@ -1,0 +1,11 @@
+name: Setup
+description: Install pnpm, Node.js, and dependencies with a cached pnpm store
+
+runs:
+  using: composite
+  steps:
+    - name: Setup pnpm and Node.js
+      uses: pnpm/setup@fa36a5ef7dcdefc3a7cb25655c122e00cf6e636e # v3.1.2
+      with:
+        cache: true
+        require-lockfile: true
